@@ -169,7 +169,7 @@ namespace syscalls {
 
 						SyscallContext context;
 						context.m_index = vit->second;
-						context.m_shellcode = (uintptr_t)&m_page[current_index++ * block_size];
+						context.m_shellcode = (uintptr_t)&m_page[current_index++ * sizeof(SyscallContext)];
 						memcpy((void*)context.m_shellcode, syscall.first, syscall.second);
 						m_functions[hash] = context;
 
