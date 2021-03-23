@@ -49,7 +49,7 @@ namespace syscalls {
     private:
         std::unordered_map<uint32_t, syscall_context> m_functions;
         eSyscallErrors m_last_error;
-        int m_current_index = 0;
+        uint32_t m_current_index = 0;
 
         #ifdef NO_WIN32_CALLS
         uint8_t m_page[0x1000];
