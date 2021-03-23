@@ -73,7 +73,7 @@ namespace syscalls {
             return false;
         }
 
-        std::vector<std::pair<uint32_t, uint32_t>> to_add;
+        std::vector<std::pair<uint32_t, uintptr_t>> to_add;
 		uint32_t export_va = data_directory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
 
         if (module_info.m_use_disk) {
@@ -93,7 +93,7 @@ namespace syscalls {
                                 if (offset) {
                                     uintptr_t export_address = find_raw_pointer<uintptr_t>(nt_header, memory, offset);
                                     if (export_address) {
-                                        to_add.push_back({ create_hash(export_name), get_syscall_index(export_address) });
+                                        to_add.push_back({ create_hash(export_name), export_address });
                                     }
                                 }
                             }
@@ -118,7 +118,7 @@ namespace syscalls {
                                 if (offset) {
                                     uintptr_t export_address = (uintptr_t)memory + offset;
                                     if (export_address) {
-                                        to_add.push_back({ create_hash(export_name), get_syscall_index(export_address) });
+                                        to_add.push_back({ create_hash(export_name), export_address });
                                     }
                                 }
                             }
@@ -134,12 +134,15 @@ namespace syscalls {
         }
 
         std::vector<uint32_t> to_encrypt;
-        for (std::pair<uint32_t, uint32_t> export_name : to_add) {
+        for (std::pair<uint32_t, uintptr_t> export_name : to_add) {
             std::pair<uint8_t*, uint32_t> created_asm = create_asm(export_name.second);
             if (created_asm.first) {
                 syscall_context context;
                 context.m_shellcode_size = created_asm.second;
-                context.m_shellcode = (uint8_t*)&m_page[m_current_index++ * sizeof(syscall_context)];
+                context.m_shellcode = (uint8_t*)&m_page[m_current_index];
+
+                // increment the page index
+                m_current_index += created_asm.second;;
 
                 // copy the created asm to the shellcode page
                 memcpy(context.m_shellcode, created_asm.first, created_asm.second);
@@ -211,74 +214,58 @@ namespace syscalls {
 #endif
     }
     
-    std::pair<uint8_t*, uint32_t> syscall::create_asm(uint32_t index) {
-        // layout is like this ready to support x86 in the future (syscall setup is completely different on x86)
-
+    std::pair<uint8_t*, uint32_t> syscall::create_asm(uintptr_t address) {
         std::pair<uint8_t*, uint32_t> syscall = { nullptr, 0 };
 
-        // Windows 7 - SP0        
-        if (IsWindows7OrGreater() && !IsWindows7SP1OrGreater()) {
-            syscall.second = 11;
+#ifdef _WIN64
+        syscall.second = 11;
+        syscall.first = new uint8_t[syscall.second];
+
+        memcpy(syscall.first, "\x4C\x8B\xD1\xB8\xFF\xFF\xFF\xFF\x0F\x05\xC3", syscall.second);
+        *(uint32_t*)(&syscall.first[4]) = get_syscall_index(address);
+
+        return syscall;
+#else
+        // Windows 7 - SP0/SP1     
+        if (IsWindows7OrGreater() && !IsWindows8OrGreater()) {
+            syscall.second = 15;
             syscall.first = new uint8_t[syscall.second];
 
-            memcpy(syscall.first, "\x4C\x8B\xD1\xB8\xFF\xFF\xFF\xFF\x0F\x05\xC3", syscall.second);
-            *(uint32_t*)(&syscall.first[4]) = index;
-            
+            memcpy(syscall.first, "\xB8\xFF\xFF\xFF\xFF\xBA\xFF\xFF\xFF\xFF\xFF\x12\xC2\x14\x00", syscall.second);
+            *(uint32_t*)(&syscall.first[1]) = get_syscall_index(address);
+            *(uint32_t*)(&syscall.first[6]) = *(uint32_t*)(address + 6);
             return syscall;
         }
 
-        // Windows 7 - SP1
-        if (IsWindows7SP1OrGreater() && !IsWindows8OrGreater()) {
-            syscall.second = 11;
+        // Windows 8.0/8.1
+        if (IsWindows8OrGreater() && !IsWindows10OrGreater()) {
+            syscall.second = 12;
             syscall.first = new uint8_t[syscall.second];
 
-            memcpy(syscall.first, "\x4C\x8B\xD1\xB8\xFF\xFF\xFF\xFF\x0F\x05\xC3", syscall.second);
-            *(uint32_t*)(&syscall.first[4]) = index;
-            
+            memcpy(syscall.first, "\xB8\xFF\xFF\xFF\xFF\x8B\xD4\x0F\x34\xC2\x18\x00", syscall.second);
+            *(uint32_t*)(&syscall.first[1]) = get_syscall_index(address);
+
             return syscall;
         }
 
-        // Windows 8.0
-        if (IsWindows8OrGreater() && !IsWindows8Point1OrGreater()) {
-            syscall.second = 11;
-            syscall.first = new uint8_t[syscall.second];
-
-            memcpy(syscall.first, "\x4C\x8B\xD1\xB8\xFF\xFF\xFF\xFF\x0F\x05\xC3", syscall.second);
-            *(uint32_t*)(&syscall.first[4]) = index;
-            
-            return syscall;
-        }
-
-        // Windows 8.1
-        if (IsWindows8Point1OrGreater() && !IsWindows10OrGreater()) {
-            syscall.second = 11;
-            syscall.first = new uint8_t[syscall.second];
-
-            memcpy(syscall.first, "\x4C\x8B\xD1\xB8\xFF\xFF\xFF\xFF\x0F\x05\xC3", syscall.second);
-            *(uint32_t*)(&syscall.first[4]) = index;
-            
-            return syscall;
-        }
-
-        // Windows 10
+        // Windows 10, altho identical to above, kept as is in case of future changes
         if (IsWindows10OrGreater()) {
-            syscall.second = 11;
+            syscall.second = 12;
             syscall.first = new uint8_t[syscall.second];
 
-            memcpy(syscall.first, "\x4C\x8B\xD1\xB8\xFF\xFF\xFF\xFF\x0F\x05\xC3", syscall.second);
-            *(uint32_t*)(&syscall.first[4]) = index;
-            
+            memcpy(syscall.first, "\xB8\xFF\xFF\xFF\xFF\x8B\xD4\x0F\x34\xC2\x18\x00", syscall.second);
+            *(uint32_t*)(&syscall.first[1]) = get_syscall_index(address);
             return syscall;
         }
+#endif
 
         return syscall;
     }
 
     uint32_t syscall::get_syscall_index(uintptr_t address) {
-        // layout is like this ready to support x86 in the future (syscall setup is completely different on x86)
-
-        // Windows 7 - SP0        
-        if (IsWindows7OrGreater() && !IsWindows7SP1OrGreater()) {
+#ifdef _WIN64
+        // Windows 7 - SP0/SP1, Windows 8.0/8.1
+        if (IsWindows7OrGreater() && !IsWindows10OrGreater()) {
             if (*(uint8_t*)(address + 3) == 0xB8) {
                 return *(uint32_t*)(address + 4);
             }
@@ -286,34 +273,7 @@ namespace syscalls {
             return 0;
         }
 
-        // Windows 7 - SP1
-        if (IsWindows7SP1OrGreater() && !IsWindows8OrGreater()) {
-            if (*(uint8_t*)(address + 3) == 0xB8) {
-                return *(uint32_t*)(address + 4);
-            }
-
-            return 0;
-        }
-
-        // Windows 8.0
-        if (IsWindows8OrGreater() && !IsWindows8Point1OrGreater()) {
-            if (*(uint8_t*)(address + 3) == 0xB8) {
-                return *(uint32_t*)(address + 4);
-            }
-
-            return 0;
-        }
-
-        // Windows 8.1
-        if (IsWindows8Point1OrGreater() && !IsWindows10OrGreater()) {
-            if (*(uint8_t*)(address + 3) == 0xB8) {
-                return *(uint32_t*)(address + 4);
-            }
-
-            return 0;
-        }
-
-        // Windows 10
+        // Windows 10, altho identical to above, kept as is in case of future changes
         if (IsWindows10OrGreater()) {
             if (*(uint8_t*)(address + 3) == 0xB8) {
                 return *(uint32_t*)(address + 4);
@@ -321,6 +281,27 @@ namespace syscalls {
 
             return 0;
         }
+
+#else
+        // Windows 7 - SP0/SP1, Windows 8.0/8.1
+        if (IsWindows7OrGreater() && !IsWindows10OrGreater()) {
+            if (*(uint8_t*)(address) == 0xB8) {
+                return *(uint32_t*)(address + 1);
+            }
+
+            return 0;
+        }
+
+
+        // Windows 10, altho identical to above, kept as is in case of future changes
+        if (IsWindows10OrGreater()) {
+            if (*(uint8_t*)(address) == 0xB8) {
+                return *(uint32_t*)(address + 1);
+            }
+
+            return 0;
+        }
+#endif
 
         return 0;
     }

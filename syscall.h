@@ -49,7 +49,7 @@ namespace syscalls {
     private:
         std::unordered_map<uint32_t, syscall_context> m_functions;
         eSyscallErrors m_last_error;
-        int m_current_index = 0;
+        uint32_t m_current_index = 0;
 
         #ifdef NO_WIN32_CALLS
         uint8_t m_page[0x1000];
@@ -61,7 +61,7 @@ namespace syscalls {
         uintptr_t find_raw(PIMAGE_NT_HEADERS nt, uintptr_t va);
         uint32_t create_hash(const char* string);
         uint32_t get_syscall_index(uintptr_t address);
-        std::pair<uint8_t*, uint32_t> create_asm(uint32_t index);
+        std::pair<uint8_t*, uint32_t> create_asm(uintptr_t address);
 
         template<typename T>
 		T find_raw_pointer(PIMAGE_NT_HEADERS nt, uint8_t* memory, uintptr_t va) {
