@@ -139,7 +139,10 @@ namespace syscalls {
             if (created_asm.first) {
                 syscall_context context;
                 context.m_shellcode_size = created_asm.second;
-                context.m_shellcode = (uint8_t*)&m_page[m_current_index++ * sizeof(syscall_context)];
+                context.m_shellcode = (uint8_t*)&m_page[m_current_index];
+		    
+		// increment the page index
+		m_current_index += context.m_shellcode_size;
 
                 // copy the created asm to the shellcode page
                 memcpy(context.m_shellcode, created_asm.first, created_asm.second);
